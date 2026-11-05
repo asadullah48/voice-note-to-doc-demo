@@ -31,6 +31,56 @@ class VoiceToDocTests(unittest.TestCase):
             'action': ['Check packing.', 'Send the packing list.'],
         })
 
+    def test_unlabeled_extraction(self):
+        for quantity in ('500 pieces', '20 dozen', '3 than'):
+            for date_phrase in ('Friday', '12 Nov', 'kal', 'parson', 'next week', '2026-11-20'):
+                with self.subTest(quantity=quantity, date=date_phrase):
+                    line = f'Cloth bhejna ko SYNTHETIC_PERSON_BETA on {date_phrase}.'
+                    fields = parse_fields(f'SYNTHETIC\nWe need {quantity}.\n{line}')
+                    self.assertEqual(fields, {
+                        'quantity': [quantity], 'date': [date_phrase],
+                        'who': ['SYNTHETIC_PERSON_BETA'], 'action': [line],
+                    })
+
+    def test_explicit_labels_take_priority_over_unlabeled_candidates(self):
+        fields = parse_fields(
+            'SYNTHETIC\nQty: 20 dozen\nWe need 500 pieces for SYNTHETIC_PERSON_ALPHA.\n'
+        )
+        self.assertEqual(fields['quantity'], ['20 dozen'])
+        self.assertEqual(fields['who'], ['SYNTHETIC_PERSON_ALPHA'])
+
+    def test_unsure_unlabeled_items_are_flagged(self):
+        flow = Workflow(
+            'SYNTHETIC\nMaybe send about 20 dozen to SYNTHETIC_PERSON_ALPHA on 12 Nov?\n'
+            'Call for SYNTHETIC_UNKNOWN on next week.\n'
+        )
+        for prefix in ('quantity:', 'date:', 'action:', 'who:'):
+            with self.subTest(field=prefix):
+                self.assertTrue(any(issue.startswith(prefix) for issue in flow.issues))
+        self.assertNotIn('SYNTHETIC_UNKNOWN', flow.draft().split('## Action items')[0])
+        with self.assertRaisesRegex(ValueError, 'Approval blocked'):
+            flow.approve()
+
+    def test_unlabeled_sample_review_to_export(self):
+        sample = Path(__file__).with_name('samples') / 'unlabeled-order.txt'
+        flow = Workflow(sample.read_text(encoding='utf-8'))
+        self.assertEqual(flow.status, 'waiting_for_details')
+        with TemporaryDirectory() as folder:
+            destination = Path(folder)
+            documents = {'unlabeled-order': flow}
+            self.assertEqual(export_approved(documents, destination), [])
+            flow.correct('note type', 'order')
+            flow.correct('what', 'Sample bags')
+            flow.correct('date', '2026-11-20')
+            self.assertEqual(flow.status, 'waiting_for_approval')
+            flow.approve()
+            path, = export_approved(documents, destination)
+            markdown = path.read_text(encoding='utf-8')
+            for expected in ('# Order summary', '500 pieces', 'SYNTHETIC_PERSON_ALPHA',
+                             '2026-11-20', 'Please send the packing list'):
+                self.assertIn(expected, markdown)
+            self.assertNotIn('## Review flags', markdown)
+
     def test_flags_missing_and_unclear_values(self):
         flow = Workflow('SYNTHETIC\nNote type: order\nWho: TBD\nDate: next Friday\n')
         self.assertEqual(flow.status, 'waiting_for_details')
