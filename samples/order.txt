@@ -1,0 +1,8 @@
+SYNTHETIC
+Note type: order
+Caller: SYNTHETIC_TEAM_ALPHA
+Order: Blue sample bags
+Qty: 12 pieces
+Delivery: next Friday
+Agla kaam: Check packing before dispatch.
+Action: Send the packing list to the review team.
