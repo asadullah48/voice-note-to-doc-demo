@@ -1,4 +1,11 @@
 __pycache__/
 *.pyc
 .env
+.env.*
 exports/
+uploads/
+*.mp3
+*.wav
+*.m4a
+*.ogg
+*.opus
