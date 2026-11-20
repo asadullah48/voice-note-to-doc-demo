@@ -1,13 +1,12 @@
 import contextlib
 import io
-from pathlib import Path
 import socket
-from tempfile import TemporaryDirectory
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from voice_to_doc import Workflow, export_approved, parse_fields, review, run_demo
-
 
 ORDER = """SYNTHETIC
 Note type: order
@@ -62,7 +61,7 @@ class VoiceToDocTests(unittest.TestCase):
             flow.approve()
 
     def test_unlabeled_sample_review_to_export(self):
-        sample = Path(__file__).with_name('samples') / 'unlabeled-order.txt'
+        sample = Path(__file__).parents[1] / 'samples' / 'unlabeled-order.txt'
         flow = Workflow(sample.read_text(encoding='utf-8'))
         self.assertEqual(flow.status, 'waiting_for_details')
         with TemporaryDirectory() as folder:
@@ -145,7 +144,7 @@ class VoiceToDocTests(unittest.TestCase):
     def test_scripted_demo_runs_offline(self):
         with TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()) as output:
             with patch.object(socket, 'socket', side_effect=AssertionError('Network forbidden')):
-                path, = run_demo(Path(folder))
+                path, = run_demo(Path(folder), samples=Path(__file__).parents[1] / 'samples')
             self.assertEqual(path.name, 'order.md')
             self.assertIn('14 pieces', path.read_text(encoding='utf-8'))
         self.assertIn('Approval blocked', output.getvalue())

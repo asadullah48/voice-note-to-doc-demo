@@ -22,7 +22,8 @@ flowchart LR
 From this folder with Python 3.11 or newer:
 
 ```powershell
-python voice_to_doc.py
+python -m pip install -e .
+python -m voice_to_doc
 ```
 
 The script prints all four drafts and their review flags. The simulated reviewer
@@ -34,7 +35,7 @@ The script prints the path of the approved order summary under
 For hands-on review:
 
 ```powershell
-python voice_to_doc.py --review
+python -m voice_to_doc --review
 ```
 
 Type `approve`, a correction such as `date: 2026-11-20`, or `next` to move
@@ -53,13 +54,15 @@ label.
 ## Tests
 
 ```powershell
-python -B -m unittest discover -v
+python -m pip install -e ".[dev]"
+ruff check .
+python -m pytest
 ```
 
 ## Limits
 
 - The parser accepts explicit labels, including the aliases listed in
-  the script. For each field, a recognized label takes priority over free speech.
+  `src/voice_to_doc/extract.py`. For each field, a recognized label takes priority over free speech.
 - The fallback reads quantities with digits followed by pieces, units, boxes,
   dozen or than. It flags supported approximation words, decimal values, and
   ranges it recognizes. It cannot read spelled-out numbers or convert units.

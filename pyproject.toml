@@ -1,0 +1,33 @@
+[project]
+name = "voice-note-to-doc-demo"
+version = "0.1.0"
+description = "Offline SYNTHETIC transcript-to-document review demo (no audio, no live integrations)."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Asadullah Shafique" }]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+voice-to-doc = "voice_to_doc.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/voice_to_doc"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]  # explicit so results do not drift with ruff defaults
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -9,3 +9,4 @@ uploads/
 *.m4a
 *.ogg
 *.opus
+.venv/
