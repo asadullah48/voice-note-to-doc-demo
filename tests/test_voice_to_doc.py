@@ -63,7 +63,7 @@ class VoiceToDocTests(unittest.TestCase):
     def test_unlabeled_sample_review_to_export(self):
         sample = Path(__file__).parents[1] / 'samples' / 'unlabeled-order.txt'
         flow = Workflow(sample.read_text(encoding='utf-8'))
-        self.assertEqual(flow.status, 'waiting_for_details')
+        self.assertEqual(flow.state, 'flagged')
         with TemporaryDirectory() as folder:
             destination = Path(folder)
             documents = {'unlabeled-order': flow}
@@ -71,7 +71,7 @@ class VoiceToDocTests(unittest.TestCase):
             flow.correct('note type', 'order')
             flow.correct('what', 'Sample bags')
             flow.correct('date', '2026-11-20')
-            self.assertEqual(flow.status, 'waiting_for_approval')
+            self.assertEqual(flow.state, 'pending')
             flow.approve()
             path, = export_approved(documents, destination)
             markdown = path.read_text(encoding='utf-8')
@@ -82,7 +82,7 @@ class VoiceToDocTests(unittest.TestCase):
 
     def test_flags_missing_and_unclear_values(self):
         flow = Workflow('SYNTHETIC\nNote type: order\nWho: TBD\nDate: next Friday\n')
-        self.assertEqual(flow.status, 'waiting_for_details')
+        self.assertEqual(flow.state, 'flagged')
         self.assertCountEqual(flow.issues, [
             'what: missing', 'action: missing', 'quantity: missing', 'who: unclear',
             'date: use an exact YYYY-MM-DD date',
@@ -95,7 +95,7 @@ class VoiceToDocTests(unittest.TestCase):
         flow = Workflow(ORDER + 'Date: 2026-11-21\n')
         self.assertIn('date: multiple values, choose one', flow.issues)
         flow.correct('date', '2026-11-21')
-        self.assertEqual(flow.status, 'waiting_for_approval')
+        self.assertEqual(flow.state, 'pending')
 
     def test_meeting_does_not_require_quantity(self):
         flow = Workflow('SYNTHETIC\nNote type: meeting\nWho: SYNTHETIC_TEAM_BETA\n'
@@ -108,7 +108,7 @@ class VoiceToDocTests(unittest.TestCase):
         flow = Workflow(ORDER)
         flow.approve()
         flow.correct('quantity', '14 pieces')
-        self.assertEqual(flow.status, 'waiting_for_approval')
+        self.assertEqual(flow.state, 'pending')
         with TemporaryDirectory() as folder:
             destination = Path(folder) / 'exports'
             self.assertEqual(export_approved({'order': flow}, destination), [])
@@ -138,7 +138,7 @@ class VoiceToDocTests(unittest.TestCase):
         with patch('builtins.input', side_effect=['approve', 'quantity: 16 pieces', 'approve', 'next']):
             with contextlib.redirect_stdout(io.StringIO()):
                 review(flow)
-        self.assertEqual(flow.status, 'approved')
+        self.assertEqual(flow.state, 'approved')
         self.assertIn('16 pieces', flow.draft())
 
     def test_scripted_demo_runs_offline(self):

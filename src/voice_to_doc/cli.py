@@ -8,7 +8,7 @@ from .review import Workflow, review
 
 def run_demo(destination=Path('exports'), interactive=False, samples=Path('samples')):
     documents = {
-        path.stem: Workflow(path.read_text(encoding='utf-8'))
+        path.stem: Workflow(path.read_text(encoding='utf-8'), name=path.stem)
         for path in sorted(Path(samples).glob('*.txt'))
     }
     print('SYNTHETIC DATA ONLY. Offline transcript-to-document demo.')
@@ -27,7 +27,7 @@ def run_demo(destination=Path('exports'), interactive=False, samples=Path('sampl
         order.approve()
         print('SIMULATED REVIEWER: approved')
         order.correct('quantity', '14 pieces')
-        print('SIMULATED REVIEWER: corrected quantity,', order.status)
+        print('SIMULATED REVIEWER: corrected quantity,', order.state)
         order.approve()
         print('SIMULATED REVIEWER: re-approved')
     paths = export_approved(documents, Path(destination))
