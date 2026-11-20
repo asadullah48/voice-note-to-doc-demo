@@ -10,6 +10,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
+llm = ["anthropic"]  # optional; only for --extractor llm
 
 [project.scripts]
 voice-to-doc = "voice_to_doc.cli:main"

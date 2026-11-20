@@ -3,7 +3,8 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 from .draft import render, validate
-from .extract import FIELDS, parse_fields
+from .extract import FIELDS
+from .extractors import RuleExtractor, check_fields
 from .models import Approval, Draft, DraftState, Transcript
 
 
@@ -11,10 +12,10 @@ class Workflow:
     """One transcript under review. State is derived, never set by hand:
     APPROVED while an approval exists; otherwise FLAGGED if validation flags remain, else PENDING."""
 
-    def __init__(self, transcript, name='draft', audit=None):
+    def __init__(self, transcript, name='draft', audit=None, extractor=None):
         self.transcript = transcript if isinstance(transcript, Transcript) else Transcript(name, transcript)
         self.name = self.transcript.name
-        self._fields = parse_fields(self.transcript.text)
+        self._fields = check_fields((extractor or RuleExtractor()).extract(self.transcript.text))
         self.approval = None
         self.audit = audit  # AuditLog or None
 

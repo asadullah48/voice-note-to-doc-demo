@@ -4,13 +4,15 @@ from pathlib import Path
 
 from .audit import AuditLog
 from .export import export_approved
+from .extractors import LLMExtractor, RuleExtractor
 from .review import Workflow, review
 
 
-def run_demo(destination=Path('exports'), interactive=False, samples=Path('samples'), audit_path=None):
+def run_demo(destination=Path('exports'), interactive=False, samples=Path('samples'), audit_path=None,
+             extractor=None):
     audit = AuditLog(audit_path or Path(destination) / 'audit.jsonl')
     documents = {
-        path.stem: Workflow(path.read_text(encoding='utf-8'), name=path.stem, audit=audit)
+        path.stem: Workflow(path.read_text(encoding='utf-8'), name=path.stem, audit=audit, extractor=extractor)
         for path in sorted(Path(samples).glob('*.txt'))
     }
     print('SYNTHETIC DATA ONLY. Offline transcript-to-document demo.')
@@ -45,5 +47,8 @@ def main(argv=None):
     parser.add_argument('--samples', type=Path, default=Path('samples'), help='folder of *.txt transcripts')
     parser.add_argument('--exports', type=Path, default=Path('exports'), help='where approved Markdown is written')
     parser.add_argument('--audit-log', type=Path, help='JSONL review log (default: <exports>/audit.jsonl)')
+    parser.add_argument('--extractor', choices=('rules', 'llm'), default='rules',
+                        help='llm is opt-in and needs VOICE_TO_DOC_ANTHROPIC_API_KEY')
     args = parser.parse_args(argv)
-    run_demo(args.exports, args.review, args.samples, args.audit_log)
+    extractor = LLMExtractor.from_env() if args.extractor == 'llm' else RuleExtractor()
+    run_demo(args.exports, args.review, args.samples, args.audit_log, extractor)
