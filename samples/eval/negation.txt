@@ -1,0 +1,3 @@
+SYNTHETIC
+Do not send anything to SYNTHETIC_PERSON_BETA.
+The 100 pieces arrived on Monday.

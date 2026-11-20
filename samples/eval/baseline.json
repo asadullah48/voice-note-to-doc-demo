@@ -1,0 +1,7 @@
+{
+  "_note": "Counts measured from the rule-based extractor on 2026-11-20; the eval test fails if tp drops or fp rises.",
+  "people": {"tp": 6, "fp": 0, "fn": 3},
+  "quantities": {"tp": 7, "fp": 0, "fn": 1},
+  "dates": {"tp": 9, "fp": 0, "fn": 1},
+  "actions": {"tp": 10, "fp": 1, "fn": 1}
+}

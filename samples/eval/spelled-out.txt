@@ -1,0 +1,3 @@
+SYNTHETIC
+SYNTHETIC_PERSON_ALPHA said to deliver twenty boxes on 2026-11-25.
+We will call SYNTHETIC_PERSON_BETA tomorrow about the invoice.
