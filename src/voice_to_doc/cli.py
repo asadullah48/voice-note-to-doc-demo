@@ -2,13 +2,15 @@
 import argparse
 from pathlib import Path
 
+from .audit import AuditLog
 from .export import export_approved
 from .review import Workflow, review
 
 
-def run_demo(destination=Path('exports'), interactive=False, samples=Path('samples')):
+def run_demo(destination=Path('exports'), interactive=False, samples=Path('samples'), audit_path=None):
+    audit = AuditLog(audit_path or Path(destination) / 'audit.jsonl')
     documents = {
-        path.stem: Workflow(path.read_text(encoding='utf-8'), name=path.stem)
+        path.stem: Workflow(path.read_text(encoding='utf-8'), name=path.stem, audit=audit)
         for path in sorted(Path(samples).glob('*.txt'))
     }
     print('SYNTHETIC DATA ONLY. Offline transcript-to-document demo.')
@@ -33,6 +35,7 @@ def run_demo(destination=Path('exports'), interactive=False, samples=Path('sampl
     paths = export_approved(documents, Path(destination))
     for path in paths:
         print('Exported approved Markdown:', path)
+    print('Review audit log (appended):', audit.path)
     return paths
 
 
@@ -41,5 +44,6 @@ def main(argv=None):
     parser.add_argument('--review', action='store_true', help='Review each draft yourself')
     parser.add_argument('--samples', type=Path, default=Path('samples'), help='folder of *.txt transcripts')
     parser.add_argument('--exports', type=Path, default=Path('exports'), help='where approved Markdown is written')
+    parser.add_argument('--audit-log', type=Path, help='JSONL review log (default: <exports>/audit.jsonl)')
     args = parser.parse_args(argv)
-    run_demo(args.exports, args.review, args.samples)
+    run_demo(args.exports, args.review, args.samples, args.audit_log)
