@@ -1,52 +1,68 @@
 """Review workflow: corrections clear approval; approval is blocked while flags remain."""
+
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import Any
 
+from .audit import AuditLog
 from .draft import render, validate
 from .extract import FIELDS
-from .extractors import RuleExtractor, check_fields
-from .models import Approval, Draft, DraftState, Transcript
+from .extractors import RuleExtractor, TranscriptExtractor, check_fields
+from .models import Approval, Draft, DraftState, Flag, Transcript
 
 
 class Workflow:
     """One transcript under review. State is derived, never set by hand:
     APPROVED while an approval exists; otherwise FLAGGED if validation flags remain, else PENDING."""
 
-    def __init__(self, transcript, name='draft', audit=None, extractor=None):
+    def __init__(
+        self,
+        transcript: Transcript | str,
+        name: str = 'draft',
+        audit: AuditLog | None = None,
+        extractor: TranscriptExtractor | None = None,
+    ) -> None:
         self.transcript = transcript if isinstance(transcript, Transcript) else Transcript(name, transcript)
         self.name = self.transcript.name
         self._fields = check_fields((extractor or RuleExtractor()).extract(self.transcript.text))
-        self.approval = None
-        self.audit = audit  # AuditLog or None
+        self.approval: Approval | None = None
+        self.audit = audit
 
     @property
-    def flags(self):
+    def flags(self) -> list[Flag]:
         return validate(self._fields)
 
     @property
-    def issues(self):
+    def issues(self) -> list[str]:
         return [str(flag) for flag in self.flags]
 
     @property
-    def state(self):
+    def state(self) -> DraftState:
         if self.approval is not None:
             return DraftState.APPROVED
         return DraftState.FLAGGED if self.flags else DraftState.PENDING
 
-    def draft(self):
+    def draft(self) -> str:
         return render(self._fields, self.issues)
 
-    def snapshot(self):
-        return Draft(self.name, {k: list(v) for k, v in self._fields.items()},
-                     tuple(self.flags), self.state, self.draft())
+    def snapshot(self) -> Draft:
+        fields = {k: list(v) for k, v in self._fields.items()}
+        return Draft(self.name, fields, tuple(self.flags), self.state, self.draft())
 
-    def _log(self, action, reviewer, result, to_state, **details):
+    def _log(self, action: str, reviewer: str, result: str, to_state: DraftState, **details: Any) -> None:
         # Written before the in-memory change: if the write fails, the action does not happen.
         if self.audit is not None:
-            self.audit.record(document=self.name, action=action, reviewer=reviewer, result=result,
-                              from_state=self.state.value, to_state=to_state.value, **details)
+            self.audit.record(
+                document=self.name,
+                action=action,
+                reviewer=reviewer,
+                result=result,
+                from_state=self.state.value,
+                to_state=to_state.value,
+                **details,
+            )
 
-    def correct(self, field, value, reviewer='SYNTHETIC_REVIEWER'):
+    def correct(self, field: str, value: str, reviewer: str = 'SYNTHETIC_REVIEWER') -> None:
         field = field.strip().lower()
         value = value.strip()
         if field not in (*FIELDS, 'note type') or not value or len(value.splitlines()) != 1:
@@ -58,7 +74,7 @@ class Workflow:
         self._fields = new_fields
         self.approval = None  # any edit, even to an approved draft, needs a fresh approval
 
-    def approve(self, reviewer='SYNTHETIC_REVIEWER'):
+    def approve(self, reviewer: str = 'SYNTHETIC_REVIEWER') -> Approval:
         if self.flags:
             self._log('approve', reviewer, 'blocked', self.state, flags=self.issues)
             raise ValueError('Approval blocked until the review flags are resolved')
@@ -68,7 +84,7 @@ class Workflow:
         return self.approval
 
 
-def review(flow, reviewer='SYNTHETIC_REVIEWER'):
+def review(flow: Workflow, reviewer: str = 'SYNTHETIC_REVIEWER') -> None:
     while True:
         print(flow.draft())
         print('Review status:', flow.state)
@@ -80,7 +96,8 @@ def review(flow, reviewer='SYNTHETIC_REVIEWER'):
             if command == 'approve':
                 flow.approve(reviewer)
             elif ':' in command:
-                flow.correct(*command.split(':', 1), reviewer=reviewer)
+                field, value = command.split(':', 1)
+                flow.correct(field, value, reviewer=reviewer)
             else:
                 print('Enter approve, field: value, or next.')
         except ValueError as error:

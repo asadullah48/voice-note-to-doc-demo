@@ -13,8 +13,14 @@ from voice_to_doc.extractors import (
 from voice_to_doc.models import DraftState
 
 SAMPLES = Path(__file__).parents[1] / 'samples'
-GOOD = {'note type': ['order'], 'who': ['SYNTHETIC_TEAM_ALPHA'], 'what': ['Blue sample bags'],
-        'quantity': ['12 pieces'], 'date': ['2026-11-20'], 'action': ['Send the packing list.']}
+GOOD = {
+    'note type': ['order'],
+    'who': ['SYNTHETIC_TEAM_ALPHA'],
+    'what': ['Blue sample bags'],
+    'quantity': ['12 pieces'],
+    'date': ['2026-11-20'],
+    'action': ['Send the packing list.'],
+}
 
 
 class FakeExtractor:
@@ -32,6 +38,7 @@ class FakeExtractor:
 def no_network(monkeypatch):
     def refuse(*args, **kwargs):
         raise AssertionError('Network forbidden in tests')
+
     monkeypatch.setattr(socket, 'socket', refuse)
 
 
@@ -64,15 +71,24 @@ def test_header_checked_before_extractor_runs():
     assert fake.seen == []
 
 
-@pytest.mark.parametrize('output', [
-    None, 'who: SYNTHETIC_TEAM_ALPHA', ['who'],
-    {**GOOD, 'state': ['approved']},          # tries to set review state
-    {**GOOD, 'approved': ['yes']},
-    {'who': 'SYNTHETIC_TEAM_ALPHA'},          # string, not list
-    {'who': [123]}, {'who': [None]}, {'who': ['']}, {'who': ['  ']},
-    {'who': ['line one\nline two']},          # multi-line value
-    {'who': [['nested']]}, {'Who': ['x']},
-])
+@pytest.mark.parametrize(
+    'output',
+    [
+        None,
+        'who: SYNTHETIC_TEAM_ALPHA',
+        ['who'],
+        {**GOOD, 'state': ['approved']},  # tries to set review state
+        {**GOOD, 'approved': ['yes']},
+        {'who': 'SYNTHETIC_TEAM_ALPHA'},  # string, not list
+        {'who': [123]},
+        {'who': [None]},
+        {'who': ['']},
+        {'who': ['  ']},
+        {'who': ['line one\nline two']},  # multi-line value
+        {'who': [['nested']]},
+        {'Who': ['x']},
+    ],
+)
 def test_schema_rejects_bad_extractor_output(output):
     with pytest.raises(ValueError):
         check_fields(output)

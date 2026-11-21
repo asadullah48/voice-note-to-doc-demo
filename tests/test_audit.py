@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from voice_to_doc import Workflow, review, run_demo
+from voice_to_doc import Workflow, review
 from voice_to_doc.audit import AuditLog
+from voice_to_doc.cli import main
 from voice_to_doc.models import DraftState
 
 SAMPLES = Path(__file__).parents[1] / 'samples'
@@ -22,13 +23,13 @@ def test_every_review_action_is_logged(tmp_path):
     log = AuditLog(tmp_path / 'audit.jsonl')
     flow = Workflow(ORDER, name='order', audit=log)
     with pytest.raises(ValueError):
-        flow.approve()                                   # blocked
-    flow.correct('date', '2026-11-20')                   # flagged -> pending
-    flow.approve(reviewer='SYNTHETIC_REVIEWER_ONE')      # pending -> approved
+        flow.approve()  # blocked
+    flow.correct('date', '2026-11-20')  # flagged -> pending
+    flow.approve(reviewer='SYNTHETIC_REVIEWER_ONE')  # pending -> approved
     with pytest.raises(ValueError):
-        flow.correct('colour', 'blue')                   # rejected edit
-    flow.correct('quantity', '14 pieces')                # approved -> pending
-    flow.correct('date', 'next Friday')                  # pending -> flagged
+        flow.correct('colour', 'blue')  # rejected edit
+    flow.correct('quantity', '14 pieces')  # approved -> pending
+    flow.correct('date', 'next Friday')  # pending -> flagged
 
     assert summary(log) == [
         ('approve', 'blocked', 'flagged', 'flagged'),
@@ -82,10 +83,10 @@ def test_interactive_review_logs_each_command(tmp_path):
     assert {e['reviewer'] for e in log.read()} == {'SYNTHETIC_REVIEWER_TWO'}
 
 
-def test_demo_writes_review_log(tmp_path):
-    with contextlib.redirect_stdout(io.StringIO()) as output:
-        run_demo(tmp_path, samples=SAMPLES)
+def test_review_command_writes_review_log(tmp_path):
+    argv = ['review', '--samples', str(SAMPLES), '--out', str(tmp_path), '--actor', 'SYNTHETIC_REVIEWER_ONE']
+    with patch('builtins.input', side_effect=['next'] * 4), contextlib.redirect_stdout(io.StringIO()) as output:
+        main(argv)
     log = AuditLog(tmp_path / 'audit.jsonl')
-    assert [(e['action'], e['result']) for e in log.read()] == [
-        ('approve', 'blocked'), ('correct', 'ok'), ('approve', 'ok'), ('correct', 'ok'), ('approve', 'ok')]
+    assert [(e['action'], e['reviewer']) for e in log.read()] == [('next', 'SYNTHETIC_REVIEWER_ONE')] * 4
     assert 'Review audit log (appended)' in output.getvalue()

@@ -1,4 +1,5 @@
 """Score rule-based extraction against the hand-annotated SYNTHETIC eval set."""
+
 import json
 from pathlib import Path
 
@@ -14,7 +15,7 @@ FIELD_MAP = {'people': 'who', 'quantities': 'quantity', 'dates': 'date', 'action
 def normalise(value):
     value = value.strip()
     if value.endswith(' (uncertain)'):
-        value = value[:-len(' (uncertain)')]
+        value = value[: -len(' (uncertain)')]
     return value.strip().rstrip('.').casefold()
 
 
@@ -38,12 +39,21 @@ def ratio(numerator, denominator):
 def eval_pairs():
     for expected_path in sorted(SAMPLES.glob('**/*.expected.json')):
         transcript = expected_path.with_name(expected_path.name.replace('.expected.json', '.txt'))
-        yield parse_fields(transcript.read_text(encoding='utf-8')), json.loads(expected_path.read_text(encoding='utf-8'))
+        yield (
+            parse_fields(transcript.read_text(encoding='utf-8')),
+            json.loads(expected_path.read_text(encoding='utf-8')),
+        )
 
 
 def test_scorer_on_known_cases():
-    counts = score([({'who': ['A'], 'date': ['kal (uncertain)', 'x']},
-                     {'people': ['a'], 'quantities': ['1 box'], 'dates': ['Kal.'], 'actions': []})])
+    counts = score(
+        [
+            (
+                {'who': ['A'], 'date': ['kal (uncertain)', 'x']},
+                {'people': ['a'], 'quantities': ['1 box'], 'dates': ['Kal.'], 'actions': []},
+            )
+        ]
+    )
     assert counts['people'] == {'tp': 1, 'fp': 0, 'fn': 0}
     assert counts['dates'] == {'tp': 1, 'fp': 1, 'fn': 0}
     assert counts['quantities'] == {'tp': 0, 'fp': 0, 'fn': 1}
@@ -63,8 +73,10 @@ def test_extraction_eval(capsys):
         print(f'{"field":<11}{"tp":>4}{"fp":>4}{"fn":>4}{"precision":>11}{"recall":>8}')
         for name, c in counts.items():
             p, r = ratio(c['tp'], c['tp'] + c['fp']), ratio(c['tp'], c['tp'] + c['fn'])
-            print(f'{name:<11}{c["tp"]:>4}{c["fp"]:>4}{c["fn"]:>4}'
-                  f'{"n/a" if p is None else f"{p:.2f}":>11}{"n/a" if r is None else f"{r:.2f}":>8}')
+            print(
+                f'{name:<11}{c["tp"]:>4}{c["fp"]:>4}{c["fn"]:>4}'
+                f'{"n/a" if p is None else f"{p:.2f}":>11}{"n/a" if r is None else f"{r:.2f}":>8}'
+            )
     if not BASELINE.exists():
         pytest.skip('no baseline recorded yet')
     baseline = json.loads(BASELINE.read_text(encoding='utf-8'))

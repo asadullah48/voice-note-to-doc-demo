@@ -1,17 +1,18 @@
 """Validation flags and Markdown rendering for a draft."""
+
 import re
 from datetime import date
 
 from .extract import UNCERTAIN, UNITS
-from .models import Flag
+from .models import Fields, Flag
 
 TITLES = {'meeting': 'Meeting note', 'order': 'Order summary'}
 
 
-def validate(fields):
+def validate(fields: Fields) -> list[Flag]:
     """Return a list of Flag; an empty list means the draft can be approved."""
     kind = fields.get('note type', [])
-    required = ('note type', 'who', 'what', 'date', 'action')
+    required: tuple[str, ...] = ('note type', 'who', 'what', 'date', 'action')
     if kind == ['order']:
         required += ('quantity',)
     issues = [Flag(field, 'missing') for field in required if not fields.get(field)]
@@ -29,7 +30,9 @@ def validate(fields):
             except ValueError:
                 issues.append(Flag('date', 'use an exact YYYY-MM-DD date'))
         if field == 'quantity' and not re.fullmatch(rf'[1-9][0-9]*(?:\s+(?:{UNITS}))?', value, re.IGNORECASE):
-            issues.append(Flag('quantity', 'confirm a positive whole number, optionally with pieces, units, boxes, dozen or than'))
+            issues.append(
+                Flag('quantity', 'confirm a positive whole number, optionally with pieces, units, boxes, dozen or than')
+            )
         if field == 'action' and any(UNCERTAIN.search(item) for item in values):
             issues.append(Flag('action', 'confirm questioned, conditional or negative wording'))
         if field == 'who' and value.endswith(' (uncertain)'):
@@ -41,7 +44,7 @@ def validate(fields):
     return issues
 
 
-def render(fields, issues):
+def render(fields: Fields, issues: list[str]) -> str:
     """Markdown for the reviewer; review flags are listed until resolved."""
     kind = fields.get('note type', [''])[0]
     lines = [f'# {TITLES.get(kind, "Document draft")}', '', '**SYNTHETIC**', '']

@@ -1,14 +1,22 @@
 """Export approved snapshots only, each run into a fresh folder."""
+
 from pathlib import Path
 from tempfile import mkdtemp
+from typing import TYPE_CHECKING
 
 from .models import DraftState
 
+if TYPE_CHECKING:
+    from .review import Workflow
 
-def export_approved(documents, destination):
+
+def export_approved(documents: 'dict[str, Workflow]', destination: Path) -> list[Path]:
     """Save approved snapshots in a fresh directory for each export."""
-    approved = [(name, flow.approval.draft.markdown) for name, flow in documents.items()
-                if flow.state is DraftState.APPROVED]
+    approved = [
+        (name, flow.approval.draft.markdown)
+        for name, flow in documents.items()
+        if flow.state is DraftState.APPROVED and flow.approval is not None
+    ]
     if not approved:
         return []
     destination.mkdir(parents=True, exist_ok=True)

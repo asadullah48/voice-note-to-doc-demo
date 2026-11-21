@@ -43,12 +43,15 @@ def test_approve_records_typed_approval():
     assert approval.draft.markdown == flow.draft() and approval.draft.flags == ()
 
 
-@pytest.mark.parametrize(('field', 'value'), [
-    ('quantity', '14 pieces'),
-    ('quantity', '12 pieces'),        # same value: still an edit, still needs re-approval
-    ('what', 'Green sample bags'),
-    ('action', 'Call the review team.'),
-])
+@pytest.mark.parametrize(
+    ('field', 'value'),
+    [
+        ('quantity', '14 pieces'),
+        ('quantity', '12 pieces'),  # same value: still an edit, still needs re-approval
+        ('what', 'Green sample bags'),
+        ('action', 'Call the review team.'),
+    ],
+)
 def test_editing_approved_draft_returns_it_to_pending(field, value):
     flow = approved_flow()
     flow.correct(field, value)
@@ -90,8 +93,9 @@ def test_transcript_requires_synthetic_header():
         Transcript('x', 'Note type: order\n')
 
 
-@pytest.mark.parametrize(('record', 'attr'), [(Transcript('t', 'SYNTHETIC\n'), 'text'),
-                                              (Flag('who', 'unclear'), 'message')])
+@pytest.mark.parametrize(
+    ('record', 'attr'), [(Transcript('t', 'SYNTHETIC\n'), 'text'), (Flag('who', 'unclear'), 'message')]
+)
 def test_records_are_immutable(record, attr):
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(record, attr, 'changed')

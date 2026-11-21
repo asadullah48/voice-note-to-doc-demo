@@ -1,4 +1,5 @@
 """Offline SYNTHETIC voice-note to document demo. Python standard library only."""
+
 from .cli import run_demo
 from .export import export_approved
 from .extract import parse_fields

@@ -6,7 +6,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from voice_to_doc import Workflow, export_approved, parse_fields, review, run_demo
+from voice_to_doc import Workflow, export_approved, parse_fields, review
+from voice_to_doc.cli import main
 
 ORDER = """SYNTHETIC
 Note type: order
@@ -21,14 +22,17 @@ Action: Send the packing list.
 
 class VoiceToDocTests(unittest.TestCase):
     def test_extract_mixed_labels_and_actions(self):
-        self.assertEqual(parse_fields(ORDER), {
-            'note type': ['order'],
-            'who': ['SYNTHETIC_TEAM_ALPHA'],
-            'what': ['Blue sample bags'],
-            'quantity': ['12 pieces'],
-            'date': ['2026-11-20'],
-            'action': ['Check packing.', 'Send the packing list.'],
-        })
+        self.assertEqual(
+            parse_fields(ORDER),
+            {
+                'note type': ['order'],
+                'who': ['SYNTHETIC_TEAM_ALPHA'],
+                'what': ['Blue sample bags'],
+                'quantity': ['12 pieces'],
+                'date': ['2026-11-20'],
+                'action': ['Check packing.', 'Send the packing list.'],
+            },
+        )
 
     def test_unlabeled_extraction(self):
         for quantity in ('500 pieces', '20 dozen', '3 than'):
@@ -36,15 +40,18 @@ class VoiceToDocTests(unittest.TestCase):
                 with self.subTest(quantity=quantity, date=date_phrase):
                     line = f'Cloth bhejna ko SYNTHETIC_PERSON_BETA on {date_phrase}.'
                     fields = parse_fields(f'SYNTHETIC\nWe need {quantity}.\n{line}')
-                    self.assertEqual(fields, {
-                        'quantity': [quantity], 'date': [date_phrase],
-                        'who': ['SYNTHETIC_PERSON_BETA'], 'action': [line],
-                    })
+                    self.assertEqual(
+                        fields,
+                        {
+                            'quantity': [quantity],
+                            'date': [date_phrase],
+                            'who': ['SYNTHETIC_PERSON_BETA'],
+                            'action': [line],
+                        },
+                    )
 
     def test_explicit_labels_take_priority_over_unlabeled_candidates(self):
-        fields = parse_fields(
-            'SYNTHETIC\nQty: 20 dozen\nWe need 500 pieces for SYNTHETIC_PERSON_ALPHA.\n'
-        )
+        fields = parse_fields('SYNTHETIC\nQty: 20 dozen\nWe need 500 pieces for SYNTHETIC_PERSON_ALPHA.\n')
         self.assertEqual(fields['quantity'], ['20 dozen'])
         self.assertEqual(fields['who'], ['SYNTHETIC_PERSON_ALPHA'])
 
@@ -73,20 +80,31 @@ class VoiceToDocTests(unittest.TestCase):
             flow.correct('date', '2026-11-20')
             self.assertEqual(flow.state, 'pending')
             flow.approve()
-            path, = export_approved(documents, destination)
+            (path,) = export_approved(documents, destination)
             markdown = path.read_text(encoding='utf-8')
-            for expected in ('# Order summary', '500 pieces', 'SYNTHETIC_PERSON_ALPHA',
-                             '2026-11-20', 'Please send the packing list'):
+            for expected in (
+                '# Order summary',
+                '500 pieces',
+                'SYNTHETIC_PERSON_ALPHA',
+                '2026-11-20',
+                'Please send the packing list',
+            ):
                 self.assertIn(expected, markdown)
             self.assertNotIn('## Review flags', markdown)
 
     def test_flags_missing_and_unclear_values(self):
         flow = Workflow('SYNTHETIC\nNote type: order\nWho: TBD\nDate: next Friday\n')
         self.assertEqual(flow.state, 'flagged')
-        self.assertCountEqual(flow.issues, [
-            'what: missing', 'action: missing', 'quantity: missing', 'who: unclear',
-            'date: use an exact YYYY-MM-DD date',
-        ])
+        self.assertCountEqual(
+            flow.issues,
+            [
+                'what: missing',
+                'action: missing',
+                'quantity: missing',
+                'who: unclear',
+                'date: use an exact YYYY-MM-DD date',
+            ],
+        )
         self.assertIn('## Review flags', flow.draft())
         with self.assertRaisesRegex(ValueError, 'Approval blocked'):
             flow.approve()
@@ -98,8 +116,10 @@ class VoiceToDocTests(unittest.TestCase):
         self.assertEqual(flow.state, 'pending')
 
     def test_meeting_does_not_require_quantity(self):
-        flow = Workflow('SYNTHETIC\nNote type: meeting\nWho: SYNTHETIC_TEAM_BETA\n'
-                        'Topic: Packing plan\nDate: 2026-11-19\nAction: Review packing.\n')
+        flow = Workflow(
+            'SYNTHETIC\nNote type: meeting\nWho: SYNTHETIC_TEAM_BETA\n'
+            'Topic: Packing plan\nDate: 2026-11-19\nAction: Review packing.\n'
+        )
         flow.approve()
         self.assertTrue(flow.draft().startswith('# Meeting note\n'))
         self.assertNotIn('Quantity', flow.draft())
@@ -114,7 +134,7 @@ class VoiceToDocTests(unittest.TestCase):
             self.assertEqual(export_approved({'order': flow}, destination), [])
             self.assertFalse(destination.exists())
             flow.approve()
-            path, = export_approved({'order': flow}, destination)
+            (path,) = export_approved({'order': flow}, destination)
             markdown = path.read_text(encoding='utf-8')
             self.assertIn('14 pieces', markdown)
             self.assertNotIn('12 pieces', markdown)
@@ -128,7 +148,7 @@ class VoiceToDocTests(unittest.TestCase):
             'incomplete': Workflow('SYNTHETIC\nNote type: meeting\n'),
         }
         with TemporaryDirectory() as folder:
-            path, = export_approved(documents, Path(folder))
+            (path,) = export_approved(documents, Path(folder))
             self.assertEqual(list(path.parent.iterdir()), [path])
             self.assertEqual(path.name, 'approved.md')
             self.assertIn('**SYNTHETIC**', path.read_text(encoding='utf-8'))
@@ -141,14 +161,13 @@ class VoiceToDocTests(unittest.TestCase):
         self.assertEqual(flow.state, 'approved')
         self.assertIn('16 pieces', flow.draft())
 
-    def test_scripted_demo_runs_offline(self):
+    def test_demo_runs_offline_and_never_approves(self):
         with TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()) as output:
             with patch.object(socket, 'socket', side_effect=AssertionError('Network forbidden')):
-                path, = run_demo(Path(folder), samples=Path(__file__).parents[1] / 'samples')
-            self.assertEqual(path.name, 'order.md')
-            self.assertIn('14 pieces', path.read_text(encoding='utf-8'))
-        self.assertIn('Approval blocked', output.getvalue())
-        self.assertIn('SIMULATED REVIEWER: re-approved', output.getvalue())
+                main(['demo', '--out', folder])
+            self.assertEqual(list(Path(folder).rglob('*.md')), [])
+        self.assertIn('Export refused', output.getvalue())
+        self.assertNotIn('State: approved', output.getvalue())
 
 
 if __name__ == '__main__':

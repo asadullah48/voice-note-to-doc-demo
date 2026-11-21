@@ -1,10 +1,18 @@
 """Field extraction from SYNTHETIC transcripts: explicit labels first, then rule-based fallback."""
+
 import re
+
+from .models import Fields
 
 FIELDS = ('who', 'what', 'quantity', 'date', 'action')
 LABELS = {
-    'caller': 'who', 'order': 'what', 'topic': 'what', 'qty': 'quantity',
-    'delivery': 'date', 'tareekh': 'date', 'agla kaam': 'action',
+    'caller': 'who',
+    'order': 'what',
+    'topic': 'what',
+    'qty': 'quantity',
+    'delivery': 'date',
+    'tareekh': 'date',
+    'agla kaam': 'action',
 }
 
 SYNTHETIC_NAMES = ('SYNTHETIC_PERSON_ALPHA', 'SYNTHETIC_PERSON_BETA')
@@ -25,18 +33,19 @@ DATE = re.compile(
 )
 ACTION = re.compile(r'\b(?:send|call|deliver|bhejna|check)\b', re.IGNORECASE)
 UNCERTAIN = re.compile(
-    r"\?|\b(?:maybe|perhaps|might|if|not|never|shayed|shayad|agar|nahin|nahi)\b"
+    r'\?|\b(?:maybe|perhaps|might|if|not|never|shayed|shayad|agar|nahin|nahi)\b'
     r"|\b(?:don['’]t|cannot|can['’]t)\b",
     re.IGNORECASE,
 )
 PERSON = re.compile(
-    rf'\b(?:to|for|ko)\s+({"|".join(SYNTHETIC_NAMES)})\b', re.IGNORECASE,
+    rf'\b(?:to|for|ko)\s+({"|".join(SYNTHETIC_NAMES)})\b',
+    re.IGNORECASE,
 )
 
 
-def extract_unlabeled(lines):
+def extract_unlabeled(lines: list[str]) -> Fields:
     """Keep source wording and leave unsupported fields unset."""
-    fields = {}
+    fields: Fields = {}
     for line in lines:
         for field, pattern in (('quantity', QUANTITY), ('date', DATE), ('who', PERSON)):
             for match in pattern.finditer(line):
@@ -51,13 +60,13 @@ def extract_unlabeled(lines):
     return fields
 
 
-def parse_fields(transcript):
+def parse_fields(transcript: str) -> Fields:
     """Prefer explicit labels and fill unlabeled fields from remaining lines."""
     marker, _, body = transcript.partition('\n')
     if marker.strip() != 'SYNTHETIC':
         raise ValueError('SYNTHETIC header required')
-    fields = {}
-    unlabeled = []
+    fields: Fields = {}
+    unlabeled: list[str] = []
     for line in body.splitlines():
         label, separator, value = line.partition(':')
         label = label.strip().lower()

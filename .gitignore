@@ -10,3 +10,10 @@ uploads/
 *.ogg
 *.opus
 .venv/
+out/
+*.db
+*.db-journal
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/

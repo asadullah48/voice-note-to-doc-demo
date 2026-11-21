@@ -25,27 +25,21 @@ From this folder with Python 3.11 or newer:
 
 ```powershell
 python -m pip install -e .
-python -m voice_to_doc
+python -m voice_to_doc demo
 ```
 
-The script prints all four drafts and their review flags; all four start `flagged`.
-The simulated reviewer tries to approve the order with a relative date (blocked),
-supplies an exact date, approves, changes the quantity (back to `pending`), and
-re-approves. The other three drafts stay `flagged`. The script prints the path of the
-approved order summary under `exports/run-*/` (a fresh folder per export) and appends
-the review actions to `exports/audit.jsonl` (`--audit-log PATH` to change it).
+The demo extracts one bundled SYNTHETIC order transcript, prints the draft, its flags
+and its state (`flagged`), tries to export and shows that export is refused, then
+prints the command a person runs to review. **The demo never approves anything.**
 
-For hands-on review:
+For hands-on review of the four samples:
 
 ```powershell
-python -m voice_to_doc --review
+python -m voice_to_doc review --samples samples --actor "<your name>"
 ```
 
-Type `approve`, a correction such as `date: 2026-11-20`, or `next` to move
-to the next draft. To correct a draft after approving it, enter the correction
-before typing `next`, then approve again. The script exports approved drafts at
-the end of the session. The `action` correction replaces the draft's action list
-with the action you enter.
+Type `approve`, a correction such as `date: 2026-11-20`, or `next`. Approved drafts
+are exported to `out/run-*/` at the end; review actions go to `out/audit.jsonl`.
 
 ## How it is built
 

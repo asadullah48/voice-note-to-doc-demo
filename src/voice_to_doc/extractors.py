@@ -1,24 +1,27 @@
 """Transcript extractors. Every extractor's output passes check_fields before a draft uses it."""
+
 import json
 import os
-from typing import Protocol
+from collections.abc import Mapping
+from typing import Any, Protocol
 
 from .extract import FIELDS, parse_fields
+from .models import Fields
 
 ALLOWED = (*FIELDS, 'note type')
 LLM_KEY_ENV = 'VOICE_TO_DOC_ANTHROPIC_API_KEY'  # dedicated name so a global key never turns this on
 
 
 class TranscriptExtractor(Protocol):
-    def extract(self, text: str) -> dict:
+    def extract(self, text: str) -> Any:
         """Return {field: [values]}; untrusted until check_fields passes."""
 
 
-def check_fields(fields):
+def check_fields(fields: object) -> Fields:
     """Shared schema: known fields only, each a list of non-empty single-line strings."""
     if not isinstance(fields, dict):
         raise ValueError('Extractor output must be an object')
-    clean = {}
+    clean: Fields = {}
     for key, values in fields.items():
         if key not in ALLOWED:
             raise ValueError(f'Extractor output has unknown field: {key!r}')
@@ -37,7 +40,7 @@ def check_fields(fields):
 class RuleExtractor:
     """Default: explicit labels, then the rule-based fallback."""
 
-    def extract(self, text):
+    def extract(self, text: str) -> Fields:
         return parse_fields(text)
 
 
@@ -48,26 +51,29 @@ class LLMExtractor:
     `--extractor llm`. Never executed in this repo's tests or CI; no live call verified.
     """
 
-    SYSTEM = ('Extract fields from the SYNTHETIC voice-note transcript. Reply with only a JSON object. '
-              'Allowed keys: ' + ', '.join(ALLOWED) + '. Each value is a list of strings copied from '
-              'the transcript wording. Omit anything the transcript does not state. Never add other keys.')
+    SYSTEM = (
+        'Extract fields from the SYNTHETIC voice-note transcript. Reply with only a JSON object. '
+        'Allowed keys: ' + ', '.join(ALLOWED) + '. Each value is a list of strings copied from '
+        'the transcript wording. Omit anything the transcript does not state. Never add other keys.'
+    )
 
-    def __init__(self, api_key, model='claude-opus-5-5'):
+    def __init__(self, api_key: str, model: str = 'claude-opus-5-5') -> None:
         import anthropic  # optional dependency, imported only when this extractor is chosen
+
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
 
     @classmethod
-    def from_env(cls, env=None):
+    def from_env(cls, env: Mapping[str, str] | None = None) -> 'LLMExtractor':
         key = (os.environ if env is None else env).get(LLM_KEY_ENV)
         if not key:
             raise RuntimeError(f'{LLM_KEY_ENV} is not set; the LLM extractor stays off')
         return cls(key)
 
-    def extract(self, text):
+    def extract(self, text: str) -> Any:
         response = self.client.messages.create(
-            model=self.model, max_tokens=2048, system=self.SYSTEM,
-            messages=[{'role': 'user', 'content': text}])
+            model=self.model, max_tokens=2048, system=self.SYSTEM, messages=[{'role': 'user', 'content': text}]
+        )
         if response.stop_reason == 'refusal':
             raise ValueError('LLM extractor declined the transcript')
         reply = ''.join(block.text for block in response.content if block.type == 'text')
