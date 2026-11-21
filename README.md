@@ -149,10 +149,17 @@ Also run on 21 Nov 2026 (Python 3.12.13):
 ## Limits
 
 - Input is prepared text. No audio, no speech-to-text, no live integrations.
-- Known rule-extractor misses, shown by the eval: names not right after "to", "for" or
-  "ko"; spelled-out quantities; "tomorrow"; the "Ship" line (the verb "ship" is not an
-  action word); and a false positive on a "Do not send" line, which is copied as an action
-  (then flagged for its negation).
+- Known misses of the rules extractor, copied from the eval run on 21 Nov 2026
+  (7 differences in total):
+  - People missed: SYNTHETIC_PERSON_ALPHA and SYNTHETIC_PERSON_BETA in `spelled-out`,
+    and SYNTHETIC_PERSON_ALPHA in `urdu-word-order`. Names are only found right after
+    "to", "for" or "ko".
+  - Quantity missed: "twenty boxes" in `spelled-out`. Spelled-out numbers are not read.
+  - Date missed: "tomorrow" in `spelled-out`.
+  - Action missed: "Ship 15 units to SYNTHETIC_PERSON_BETA on 3 Dec" in `ship-verb`.
+    "Ship" is not an action word.
+  - False action: "Do not send anything to SYNTHETIC_PERSON_BETA" in `negation` is
+    copied as an action. It is then flagged for its negative wording.
 - The fallback reads quantities with digits followed by pieces, units, boxes, dozen or
   than; ISO dates, day-and-month phrases, weekday names, "kal", "parson", "next week". A
   reviewer must replace any non-ISO date with an exact YYYY-MM-DD date. No calendar
@@ -163,8 +170,11 @@ Also run on 21 Nov 2026 (Python 3.12.13):
   replaced and before the DB transaction commits leaves an orphan Markdown file and no
   audit row claiming the export.
 - Single-user SQLite. No claim about concurrent use.
-- Reviewer names are plain strings, not authentication. The audit table refuses UPDATE
-  and DELETE through triggers, but anyone with the file can rewrite it: not tamper-evident.
+- The approval actor is a name typed on the CLI. It is not authenticated.
+- The audit table is append-only through SQL triggers. This stops normal UPDATE and
+  DELETE. Anyone who can edit the DB file can drop the triggers. So it is
+  tamper-resistant, not tamper-evident. A hash chain is under "Not built yet".
+- The audit stores field names and hashes only, not transcript text or corrected values.
 - The LLM extractor has never been executed; `pip install -e ".[llm]"` was not run.
 - CI has not run yet. Linux and macOS were not tested.
 - The eval set is eight synthetic transcripts annotated by the author; no second
