@@ -1,3 +1,4 @@
+HISTORICAL — written 2026-11-14. Not current. See README.md.
 # Handover — voice-note-to-doc-demo
 
 VERIFIED 2026-11-14 (Asia/Karachi).

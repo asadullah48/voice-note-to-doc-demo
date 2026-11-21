@@ -132,7 +132,7 @@ Not verified:
   run, and no request has been sent to any model.
 - Linux/macOS.
 
-`HANDOVER.md` is a dated record of the earlier single-file version; its
+`docs/history/HANDOVER.md` is a dated record of the earlier single-file version; its
 `python -B -m unittest discover -v` command no longer works.
 
 ## Limits
