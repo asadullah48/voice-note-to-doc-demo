@@ -32,18 +32,9 @@ class Flag:
 
 
 @dataclass(frozen=True)
-class Draft:
-    """Snapshot of one revision as the reviewer saw it."""
-
-    name: str
-    fields: Fields
-    flags: tuple[Flag, ...] = ()
-    state: DraftState = DraftState.PENDING
-    markdown: str = ''
-
-
-@dataclass(frozen=True)
 class Approval:
-    draft: Draft
-    reviewer: str
-    approved_at: str  # UTC ISO-8601
+    """A person's approval of one exact content version. Only review.Workflow.approve creates it."""
+
+    actor: str
+    ts_utc: str  # UTC ISO-8601
+    content_hash: str  # SHA-256 of the draft content at approval time

@@ -6,9 +6,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from voice_to_doc import Workflow, export_approved, parse_fields, review
+from voice_to_doc import Workflow, export_draft, parse_fields
 from voice_to_doc.cli import main
+from voice_to_doc.export import ExportBlocked
 
+R = 'SYNTHETIC_REVIEWER'
 ORDER = """SYNTHETIC
 Note type: order
 Caller: SYNTHETIC_TEAM_ALPHA
@@ -65,23 +67,22 @@ class VoiceToDocTests(unittest.TestCase):
                 self.assertTrue(any(issue.startswith(prefix) for issue in flow.issues))
         self.assertNotIn('SYNTHETIC_UNKNOWN', flow.draft().split('## Action items')[0])
         with self.assertRaisesRegex(ValueError, 'Approval blocked'):
-            flow.approve()
+            flow.approve(R)
 
     def test_unlabeled_sample_review_to_export(self):
         sample = Path(__file__).parents[1] / 'samples' / 'unlabeled-order.txt'
-        flow = Workflow(sample.read_text(encoding='utf-8'))
+        flow = Workflow(sample.read_text(encoding='utf-8'), name='unlabeled-order')
         self.assertEqual(flow.state, 'flagged')
         with TemporaryDirectory() as folder:
             destination = Path(folder)
-            documents = {'unlabeled-order': flow}
-            self.assertEqual(export_approved(documents, destination), [])
-            flow.correct('note type', 'order')
-            flow.correct('what', 'Sample bags')
-            flow.correct('date', '2026-11-20')
+            with self.assertRaises(ExportBlocked):
+                export_draft(flow, destination, R)
+            flow.correct('note type', 'order', R)
+            flow.correct('what', 'Sample bags', R)
+            flow.correct('date', '2026-11-20', R)
             self.assertEqual(flow.state, 'pending')
-            flow.approve()
-            (path,) = export_approved(documents, destination)
-            markdown = path.read_text(encoding='utf-8')
+            flow.approve(R)
+            markdown = export_draft(flow, destination, R).read_text(encoding='utf-8')
             for expected in (
                 '# Order summary',
                 '500 pieces',
@@ -107,12 +108,12 @@ class VoiceToDocTests(unittest.TestCase):
         )
         self.assertIn('## Review flags', flow.draft())
         with self.assertRaisesRegex(ValueError, 'Approval blocked'):
-            flow.approve()
+            flow.approve(R)
 
     def test_conflicting_dates_require_a_correction(self):
         flow = Workflow(ORDER + 'Date: 2026-11-21\n')
         self.assertIn('date: multiple values, choose one', flow.issues)
-        flow.correct('date', '2026-11-21')
+        flow.correct('date', '2026-11-21', R)
         self.assertEqual(flow.state, 'pending')
 
     def test_meeting_does_not_require_quantity(self):
@@ -120,51 +121,50 @@ class VoiceToDocTests(unittest.TestCase):
             'SYNTHETIC\nNote type: meeting\nWho: SYNTHETIC_TEAM_BETA\n'
             'Topic: Packing plan\nDate: 2026-11-19\nAction: Review packing.\n'
         )
-        flow.approve()
+        flow.approve(R)
         self.assertTrue(flow.draft().startswith('# Meeting note\n'))
         self.assertNotIn('Quantity', flow.draft())
 
     def test_correction_requires_reapproval_before_export(self):
-        flow = Workflow(ORDER)
-        flow.approve()
-        flow.correct('quantity', '14 pieces')
+        flow = Workflow(ORDER, name='order')
+        flow.approve(R)
+        flow.correct('quantity', '14 pieces', R)
         self.assertEqual(flow.state, 'pending')
         with TemporaryDirectory() as folder:
             destination = Path(folder) / 'exports'
-            self.assertEqual(export_approved({'order': flow}, destination), [])
+            with self.assertRaises(ExportBlocked):
+                export_draft(flow, destination, R)
             self.assertFalse(destination.exists())
-            flow.approve()
-            (path,) = export_approved({'order': flow}, destination)
-            markdown = path.read_text(encoding='utf-8')
+            flow.approve(R)
+            markdown = export_draft(flow, destination, R).read_text(encoding='utf-8')
             self.assertIn('14 pieces', markdown)
             self.assertNotIn('12 pieces', markdown)
 
-    def test_export_excludes_pending_and_incomplete_drafts(self):
-        approved = Workflow(ORDER)
-        approved.approve()
-        documents = {
-            'approved': approved,
-            'pending': Workflow(ORDER),
-            'incomplete': Workflow('SYNTHETIC\nNote type: meeting\n'),
-        }
+    def test_export_refuses_pending_and_incomplete_drafts(self):
+        approved = Workflow(ORDER, name='approved')
+        approved.approve(R)
         with TemporaryDirectory() as folder:
-            (path,) = export_approved(documents, Path(folder))
+            incomplete = Workflow('SYNTHETIC\nNote type: meeting\n', name='incomplete')
+            for flow in (Workflow(ORDER, name='pending'), incomplete):
+                with self.assertRaises(ExportBlocked):
+                    export_draft(flow, Path(folder), R)
+            path = export_draft(approved, Path(folder), R)
             self.assertEqual(list(path.parent.iterdir()), [path])
-            self.assertEqual(path.name, 'approved.md')
+            self.assertTrue(path.name.startswith('approved-'))
             self.assertIn('**SYNTHETIC**', path.read_text(encoding='utf-8'))
 
     def test_human_review_can_approve_edit_and_reapprove(self):
         flow = Workflow(ORDER)
-        with patch('builtins.input', side_effect=['approve', 'quantity: 16 pieces', 'approve', 'next']):
-            with contextlib.redirect_stdout(io.StringIO()):
-                review(flow)
+        flow.approve(R)
+        flow.correct('quantity', '16 pieces', R)
+        flow.approve(R)
         self.assertEqual(flow.state, 'approved')
         self.assertIn('16 pieces', flow.draft())
 
     def test_demo_runs_offline_and_never_approves(self):
         with TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()) as output:
             with patch.object(socket, 'socket', side_effect=AssertionError('Network forbidden')):
-                main(['demo', '--out', folder])
+                main(['--db', str(Path(folder) / 'demo.db'), 'demo', '--out', str(Path(folder) / 'out')])
             self.assertEqual(list(Path(folder).rglob('*.md')), [])
         self.assertIn('Export refused', output.getvalue())
         self.assertNotIn('State: approved', output.getvalue())

@@ -8,7 +8,8 @@ This offline demo turns prepared voice-note **transcripts** (text, not audio) in
 Markdown meeting notes and order summaries. It extracts people and topics where
 supported, quantities, dates, and action items. It flags missing or unclear details
 before approval. Editing an approved draft clears its approval until a reviewer
-approves the revised draft. Every review action is written to a JSONL audit log.
+approves the revised draft. Draft state and an append-only audit log live in one SQLite
+file, and each state change commits together with its audit row.
 
 ```mermaid
 flowchart LR
@@ -28,18 +29,12 @@ python -m pip install -e .
 python -m voice_to_doc demo
 ```
 
-The demo extracts one bundled SYNTHETIC order transcript, prints the draft, its flags
-and its state (`flagged`), tries to export and shows that export is refused, then
-prints the command a person runs to review. **The demo never approves anything.**
-
-For hands-on review of the four samples:
-
-```powershell
-python -m voice_to_doc review --samples samples --actor "<your name>"
-```
-
-Type `approve`, a correction such as `date: 2026-11-20`, or `next`. Approved drafts
-are exported to `out/run-*/` at the end; review actions go to `out/audit.jsonl`.
+The demo extracts one bundled SYNTHETIC order transcript into `./voice_to_doc.db`
+(`--db PATH` or `VOICE_TO_DOC_DB` to change it), prints the draft, its flags and its
+state (`flagged`), tries to export and shows that export is refused, then prints the
+exact `correct`, `approve` and `export` commands a person runs. **The demo never
+approves anything.** Other commands: `extract FILE`, `show ID`, `next ID --actor NAME`,
+`audit [ID]`.
 
 ## How it is built
 
@@ -50,8 +45,9 @@ are exported to `out/run-*/` at the end; review actions go to `out/audit.jsonl`.
 | `draft.py` | `validate` returns typed `Flag`s; `render` builds the Markdown. |
 | `models.py` | Frozen dataclasses `Transcript`, `Draft`, `Flag`, `Approval`, and `DraftState` = `pending` / `flagged` / `approved`. |
 | `review.py` | `Workflow`: state is derived (approved while an approval exists, else flagged if any flag, else pending). Any accepted edit clears the approval. Approval is blocked while flags remain. |
-| `audit.py` | Append-only JSONL: one line per `approve` (ok/blocked), `correct` (ok/rejected) and interactive `next`, with time, document, reviewer, result, from/to state and the field/value or flags. The line is written before the in-memory change, so a failed write cancels the action. |
-| `export.py` | Writes only the approved snapshot of each approved draft. |
+| `store.py` | One SQLite file (stdlib `sqlite3`) for drafts and audit. `PRAGMA user_version` schema version, foreign keys on, `BEGIN IMMEDIATE` writes. `Store.change` is the only way state changes: the state write and its `ok` audit row share one transaction. Blocked/rejected/failed actions write only an audit row, in their own transaction. |
+| `audit.py` | Append-only `audit` table (triggers raise on UPDATE and DELETE): `ts_utc`, `actor`, `action`, `outcome` (ok/blocked/rejected/failed), `draft_id`, `reason_code` (e.g. `changed:quantity`), and SHA-256 `before_hash`/`after_hash` of the canonical draft content. No transcript text or corrected values. |
+| `export.py` | Approved drafts only: temp file, fsync, `os.replace` to `<name>-<hash12>.md`, then one transaction for exported state plus its audit row. |
 | `cli.py` | `python -m voice_to_doc` / `voice-to-doc`. |
 
 **Optional LLM extractor.** Off by default. It needs `pip install -e ".[llm]"`, the
@@ -94,16 +90,12 @@ notes. The test fails if any field's hits drop or false positives rise versus
 ```powershell
 python -m pip install -e ".[dev]"
 ruff check .
+ruff format --check .
+mypy
 python -m pytest
 ```
 
-53 tests: 12 original workflow tests, 13 state tests (explicit states, typed approval,
-editing an approved draft returns it to `pending` or `flagged`, flagged drafts cannot
-be approved, immutable records), 6 audit tests (every action logged with correct
-from/to states, append across workflows, a failed write leaves state unchanged,
-interactive review, demo log), 3 eval tests (scorer, every transcript annotated, the
-eval with its baseline ratchet), and 19 extractor tests using a fake extractor with
-sockets blocked. No test calls the network or the LLM extractor.
+No test calls the network or the LLM extractor. Current counts are in Verified.
 
 ## Verified
 
@@ -153,18 +145,19 @@ Not verified:
   Orders require a quantity. Both document types require actions.
 - No runtime dependencies on the default path (standard library only); the optional
   `[llm]` extra adds `anthropic`.
-- Review state lives in memory for one run. The export is a local Markdown
-  snapshot of an approved revision.
-- Reviewer names are plain strings, not authentication. The audit log is append-only by
-  convention (append mode), not tamper-evident, and it copies corrected values into a
-  plain file. No log rotation.
+- State and audit share one single-user SQLite file; no claim is made about concurrent use.
+- Export writes a file and then commits a DB row; these cannot be one transaction. A crash
+  between the two leaves an orphan Markdown file and no audit row claiming the export.
+- Reviewer names are plain strings, not authentication. The audit table refuses UPDATE and
+  DELETE through SQLite triggers, but anyone with the file can rewrite it: it is not
+  tamper-evident. It stores field names and content hashes, not corrected values.
 - The eval set is eight synthetic transcripts annotated by the author; there is no
   second annotator and no real-data eval.
 
 ## Not built yet
 
 - Audio input and transcription.
-- Persistent review state or a shared review queue.
+- A shared, multi-user review queue.
 - Authentication for reviewers; tamper-evident audit storage.
 - A live-tested LLM extractor, or an eval of one.
 - Export to any document system.

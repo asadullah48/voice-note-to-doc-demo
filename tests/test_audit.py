@@ -1,92 +1,59 @@
-import contextlib
-import io
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-from voice_to_doc import Workflow, review
-from voice_to_doc.audit import AuditLog
-from voice_to_doc.cli import main
+from voice_to_doc import Store, Workflow
 from voice_to_doc.models import DraftState
 
 SAMPLES = Path(__file__).parents[1] / 'samples'
 ORDER = (SAMPLES / 'order.txt').read_text(encoding='utf-8')  # relative date: starts flagged
+R = 'SYNTHETIC_REVIEWER'
 
 
-def summary(log):
-    return [(e['action'], e['result'], e['from_state'], e['to_state']) for e in log.read()]
+def summary(store: Store) -> list[tuple[str, str, str]]:
+    return [(r['action'], r['outcome'], r['reason_code']) for r in store.audit_rows()]
 
 
-def test_every_review_action_is_logged(tmp_path):
-    log = AuditLog(tmp_path / 'audit.jsonl')
-    flow = Workflow(ORDER, name='order', audit=log)
+def test_every_review_action_is_logged() -> None:
+    store = Store()
+    flow = Workflow(ORDER, name='order', store=store)
     with pytest.raises(ValueError):
-        flow.approve()  # blocked
-    flow.correct('date', '2026-11-20')  # flagged -> pending
-    flow.approve(reviewer='SYNTHETIC_REVIEWER_ONE')  # pending -> approved
+        flow.approve(R)  # blocked
+    flow.correct('date', '2026-11-20', R)  # flagged -> pending
+    flow.approve('SYNTHETIC_REVIEWER_ONE')  # pending -> approved
     with pytest.raises(ValueError):
-        flow.correct('colour', 'blue')  # rejected edit
-    flow.correct('quantity', '14 pieces')  # approved -> pending
-    flow.correct('date', 'next Friday')  # pending -> flagged
+        flow.correct('colour', 'blue', R)  # rejected edit
+    flow.correct('quantity', '14 pieces', R)  # approved -> pending
+    flow.correct('date', 'next Friday', R)  # pending -> flagged
 
-    assert summary(log) == [
-        ('approve', 'blocked', 'flagged', 'flagged'),
-        ('correct', 'ok', 'flagged', 'pending'),
-        ('approve', 'ok', 'pending', 'approved'),
-        ('correct', 'rejected', 'approved', 'approved'),
-        ('correct', 'ok', 'approved', 'pending'),
-        ('correct', 'ok', 'pending', 'flagged'),
+    assert summary(store) == [
+        ('extract', 'ok', ''),
+        ('approve', 'blocked', 'open_flags'),
+        ('correct', 'ok', 'changed:date'),
+        ('approve', 'ok', ''),
+        ('correct', 'rejected', 'unsupported_field'),
+        ('correct', 'ok', 'changed:quantity'),
+        ('correct', 'ok', 'changed:date'),
     ]
-    events = log.read()
-    assert events[0]['flags'] == ['date: use an exact YYYY-MM-DD date']
-    assert events[1]['field'] == 'date' and events[1]['value'] == '2026-11-20'
-    assert events[2]['reviewer'] == 'SYNTHETIC_REVIEWER_ONE'
-    assert {e['document'] for e in events} == {'order'}
-    assert all(datetime.fromisoformat(e['time']).tzinfo is not None for e in events)
-    # Logged states agree with the workflow's real final state.
-    assert events[-1]['to_state'] == flow.state.value == DraftState.FLAGGED
+    rows = store.audit_rows()
+    assert rows[0]['actor'] == 'extractor:RuleExtractor'
+    assert rows[3]['actor'] == 'SYNTHETIC_REVIEWER_ONE'
+    assert {r['draft_id'] for r in rows} == {flow.id}
+    assert all(datetime.fromisoformat(r['ts_utc']).tzinfo is not None for r in rows)
+    assert flow.state is DraftState.FLAGGED
 
 
-def test_log_is_append_only_across_workflows(tmp_path):
-    path = tmp_path / 'audit.jsonl'
-    Workflow(ORDER, name='a', audit=AuditLog(path)).correct('date', '2026-11-20')
-    before = path.read_text(encoding='utf-8')
-    Workflow(ORDER, name='b', audit=AuditLog(path)).correct('date', '2026-11-21')
-    after = path.read_text(encoding='utf-8')
-    assert after.startswith(before) and len(after.splitlines()) == 2
-
-
-@pytest.mark.parametrize('action', ['correct', 'approve'])
-def test_failed_log_write_leaves_state_unchanged(tmp_path, action):
-    flow = Workflow(ORDER, name='order', audit=AuditLog(tmp_path))  # a directory: open() fails
-    flow.audit = None
-    flow.correct('date', '2026-11-20')
-    flow.audit = AuditLog(tmp_path)
-    before = (flow.state, flow.draft(), flow.approval)
-    with pytest.raises(OSError):
-        if action == 'correct':
-            flow.correct('quantity', '14 pieces')
-        else:
-            flow.approve()
-    assert (flow.state, flow.draft(), flow.approval) == before
-
-
-def test_interactive_review_logs_each_command(tmp_path):
-    log = AuditLog(tmp_path / 'audit.jsonl')
-    flow = Workflow(ORDER, name='order', audit=log)
-    commands = ['approve', 'date: 2026-11-20', 'approve', 'next']
-    with patch('builtins.input', side_effect=commands), contextlib.redirect_stdout(io.StringIO()):
-        review(flow, reviewer='SYNTHETIC_REVIEWER_TWO')
-    assert [e['action'] for e in log.read()] == ['approve', 'correct', 'approve', 'next']
-    assert {e['reviewer'] for e in log.read()} == {'SYNTHETIC_REVIEWER_TWO'}
-
-
-def test_review_command_writes_review_log(tmp_path):
-    argv = ['review', '--samples', str(SAMPLES), '--out', str(tmp_path), '--actor', 'SYNTHETIC_REVIEWER_ONE']
-    with patch('builtins.input', side_effect=['next'] * 4), contextlib.redirect_stdout(io.StringIO()) as output:
-        main(argv)
-    log = AuditLog(tmp_path / 'audit.jsonl')
-    assert [(e['action'], e['reviewer']) for e in log.read()] == [('next', 'SYNTHETIC_REVIEWER_ONE')] * 4
-    assert 'Review audit log (appended)' in output.getvalue()
+def test_log_is_shared_by_drafts_in_one_file(tmp_path: Path) -> None:
+    path = tmp_path / 'state.db'
+    first = Store(path)
+    Workflow(ORDER, name='a', store=first).correct('date', '2026-11-20', R)
+    first.close()
+    second = Store(path)
+    Workflow(ORDER, name='b', store=second).correct('date', '2026-11-21', R)
+    assert [(r['draft_id'], r['action']) for r in second.audit_rows()] == [
+        (1, 'extract'),
+        (1, 'correct'),
+        (2, 'extract'),
+        (2, 'correct'),
+    ]

@@ -1,5 +1,7 @@
 """Validation flags and Markdown rendering for a draft."""
 
+import hashlib
+import json
 import re
 from datetime import date
 
@@ -7,6 +9,16 @@ from .extract import UNCERTAIN, UNITS
 from .models import Fields, Flag
 
 TITLES = {'meeting': 'Meeting note', 'order': 'Order summary'}
+
+
+def canonical(fields: Fields) -> str:
+    """Stable JSON for storage and hashing: sorted keys, no whitespace."""
+    return json.dumps(fields, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+
+
+def content_hash(fields: Fields) -> str:
+    """SHA-256 of the canonical draft content. Approval and export are bound to it."""
+    return hashlib.sha256(canonical(fields).encode('utf-8')).hexdigest()
 
 
 def validate(fields: Fields) -> list[Flag]:

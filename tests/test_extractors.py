@@ -47,7 +47,7 @@ def test_rule_extractor_is_default_and_passes_schema():
         text = path.read_text(encoding='utf-8')
         output = RuleExtractor().extract(text)
         assert check_fields(output) == output
-        assert Workflow(text)._fields == output
+        assert Workflow(text).fields == output
 
 
 def test_valid_fake_output_drives_a_pending_draft_only():
