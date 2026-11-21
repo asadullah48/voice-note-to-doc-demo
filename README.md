@@ -2,10 +2,6 @@
 
 [![ci](https://github.com/asadullah48/voice-note-to-doc-demo/actions/workflows/ci.yml/badge.svg)](https://github.com/asadullah48/voice-note-to-doc-demo/actions/workflows/ci.yml)
 
-The badge points at the public repository `asadullah48/voice-note-to-doc-demo`. This
-checkout has no git remote and these commits are not pushed, so the badge describes this
-code only after the history is pushed. CI has not run on this code.
-
 ## What it is
 
 An offline demo that turns prepared voice-note **transcripts** (text, not audio) into
@@ -113,7 +109,9 @@ block `socket.socket`.
 
 ## Verified
 
-Only what was run, on Windows 11, 21 Nov 2026, each in a fresh venv with
+CI: run #2 on main, commit a3f74ef, passed on Python 3.11 and 3.12 (verified 21 Nov 2026).
+
+Local runs (not CI), on Windows 11, 21 Nov 2026, each in a fresh venv with
 `pip install -e ".[dev]"` (ruff 0.17.6, mypy 2.4.1, pytest 9.2.0):
 
 | Python | `ruff check .` | `ruff format --check .` | `mypy` (strict, `src/`) | `python -m pytest` | `python -m voice_to_doc demo` |
@@ -137,7 +135,7 @@ actions      10   1   1       0.91    0.91
 
 8 hand-written synthetic transcripts; this is not an accuracy estimate.
 
-Also run on 21 Nov 2026 (Python 3.12.13):
+Also run locally on 21 Nov 2026 (Python 3.12.13):
 - A test runs the demo's printed `correct`, `approve` and `export` commands against the
   same database file and gets one exported file.
 - Mutation check: with the transaction wrapper removed from `Store.change`, the two
@@ -176,7 +174,8 @@ Also run on 21 Nov 2026 (Python 3.12.13):
   tamper-resistant, not tamper-evident. A hash chain is under "Not built yet".
 - The audit stores field names and hashes only, not transcript text or corrected values.
 - The LLM extractor has never been executed; `pip install -e ".[llm]"` was not run.
-- CI has not run yet. Linux and macOS were not tested.
+- Linux and macOS were not tested locally. CI (`.github/workflows/ci.yml`) runs on
+  `ubuntu-latest` only, with Python 3.11 and 3.12. macOS and Windows are not in CI.
 - The eval set is eight synthetic transcripts annotated by the author; no second
   annotator, no real-data eval.
 
