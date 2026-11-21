@@ -17,20 +17,30 @@ class TranscriptExtractor(Protocol):
         """Return {field: [values]}; untrusted until check_fields passes."""
 
 
+class ExtractorSchemaError(ValueError):
+    """Extractor output broke the schema. No draft is created."""
+
+
+# Review-control keys an extractor (rules, LLM, fake) may never set. Only review.Workflow.approve approves.
+FORBIDDEN = frozenset({'approval', 'approved', 'approved_by', 'state', 'status', 'reviewer'})
+
+
 def check_fields(fields: object) -> Fields:
-    """Shared schema: known fields only, each a list of non-empty single-line strings."""
+    """Strict schema: known fields only, each a list of non-empty single-line strings."""
     if not isinstance(fields, dict):
-        raise ValueError('Extractor output must be an object')
+        raise ExtractorSchemaError('Extractor output must be an object')
     clean: Fields = {}
     for key, values in fields.items():
+        if key in FORBIDDEN:
+            raise ExtractorSchemaError(f'Extractor output may not set review control field {key!r}')
         if key not in ALLOWED:
-            raise ValueError(f'Extractor output has unknown field: {key!r}')
+            raise ExtractorSchemaError(f'Extractor output has unknown field: {key!r}')
         if not isinstance(values, list):
-            raise ValueError(f'Extractor field {key!r} must be a list of strings')
+            raise ExtractorSchemaError(f'Extractor field {key!r} must be a list of strings')
         items = []
         for value in values:
             if not isinstance(value, str) or not value.strip() or len(value.strip().splitlines()) != 1:
-                raise ValueError(f'Extractor field {key!r} must hold non-empty single-line strings')
+                raise ExtractorSchemaError(f'Extractor field {key!r} must hold non-empty single-line strings')
             items.append(value.strip())
         if items:
             clean[key] = items

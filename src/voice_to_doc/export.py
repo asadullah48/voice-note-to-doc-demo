@@ -6,12 +6,9 @@ import os
 import tempfile
 from pathlib import Path
 
-from .models import DraftState
-from .review import Workflow
+from .review import ExportBlocked, Workflow
 
-
-class ExportBlocked(ValueError):
-    """Only approved drafts export."""
+__all__ = ['ExportBlocked', 'ExportFailed', 'export_draft']
 
 
 class ExportFailed(RuntimeError):
@@ -19,10 +16,7 @@ class ExportFailed(RuntimeError):
 
 
 def export_draft(flow: Workflow, out: Path, actor: str) -> Path:
-    state = flow.state
-    if state is not DraftState.APPROVED:
-        flow.store.refuse(flow.id, actor, 'export', 'blocked', f'state_{state}')
-        raise ExportBlocked(f'Export refused: draft {flow.id} is {state}, only approved drafts export')
+    flow.check('export', actor)  # refuses and audits unless approved (transition table)
     markdown, digest = flow.draft(), flow.content_hash
     final = out / f'{flow.name}-{digest[:12]}.md'
     temp: str | None = None

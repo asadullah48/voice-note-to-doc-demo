@@ -1,6 +1,7 @@
-"""Review workflow over the SQLite store. Every change goes through Store.change (state + audit together)."""
+"""Review control graph over the SQLite store. Every change goes through Store.change (state + audit together)."""
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from .draft import canonical, content_hash, render, validate
 from .extract import FIELDS
@@ -9,9 +10,76 @@ from .models import Approval, DraftState, Fields, Flag, Transcript
 from .store import Store
 
 
+class TransitionError(ValueError):
+    """An action that the transition table does not allow from the current state."""
+
+
+class IllegalTransition(TransitionError):
+    pass
+
+
+class ApprovalBlocked(TransitionError):
+    pass
+
+
+class AlreadyApproved(TransitionError):
+    pass
+
+
+class ExportBlocked(TransitionError):
+    """Only approved drafts export."""
+
+
+class ActorRequired(ValueError):
+    """Human actions need a non-empty name."""
+
+
+PENDING, FLAGGED, APPROVED = DraftState.PENDING, DraftState.FLAGGED, DraftState.APPROVED
+REVALIDATE: Literal['pending or flagged'] = 'pending or flagged'  # by the new content's flags, never approved
+Target = DraftState | Literal['pending or flagged'] | type[TransitionError]
+ACTIONS = ('correct', 'approve', 'next', 'export')
+
+# The control graph. States are derived from stored data (see Workflow.state), never set by hand.
+TRANSITIONS: dict[tuple[DraftState, str], Target] = {
+    (PENDING, 'correct'): REVALIDATE,
+    (FLAGGED, 'correct'): REVALIDATE,
+    (APPROVED, 'correct'): REVALIDATE,  # any edit drops approval; an edit that adds a flag gives flagged
+    (PENDING, 'approve'): APPROVED,
+    (FLAGGED, 'approve'): ApprovalBlocked,
+    (APPROVED, 'approve'): AlreadyApproved,
+    (PENDING, 'next'): PENDING,
+    (FLAGGED, 'next'): FLAGGED,
+    (APPROVED, 'next'): APPROVED,
+    (PENDING, 'export'): ExportBlocked,
+    (FLAGGED, 'export'): ExportBlocked,
+    (APPROVED, 'export'): APPROVED,  # records the exported hash; state unchanged
+}
+
+
+def transition(state: DraftState, action: str) -> DraftState | Literal['pending or flagged']:
+    target = TRANSITIONS.get((state, action))
+    if target is None:
+        raise IllegalTransition(f'no transition for {action!r} from {state}')
+    if isinstance(target, type):
+        raise target(f'{action} is not allowed on a {state} draft')
+    return target
+
+
+def transition_table() -> str:
+    """The same table as Markdown; README.md must contain it (tested)."""
+    lines = ['| state \\ action | ' + ' | '.join(ACTIONS) + ' |', '|---' * (len(ACTIONS) + 1) + '|']
+    for state in DraftState:
+        cells = []
+        for action in ACTIONS:
+            target = TRANSITIONS[(state, action)]
+            cells.append(f'`{target.__name__}`' if isinstance(target, type) else str(target))
+        lines.append(f'| {state} | ' + ' | '.join(cells) + ' |')
+    return '\n'.join(lines)
+
+
 class Workflow:
-    """One draft under review. State is derived, never set by hand:
-    APPROVED while an approval exists; otherwise FLAGGED if validation flags remain, else PENDING."""
+    """One draft under review. APPROVED only while the stored approval hash equals the current
+    content hash AND no flags are open; otherwise FLAGGED if flags remain, else PENDING."""
 
     def __init__(
         self,
@@ -68,14 +136,36 @@ class Workflow:
 
     @property
     def state(self) -> DraftState:
-        if self.approval is not None:
-            return DraftState.APPROVED
-        return DraftState.FLAGGED if self.flags else DraftState.PENDING
+        flags = self.flags
+        approval = self.approval
+        if approval is not None and approval.content_hash == self.content_hash and not flags:
+            return APPROVED
+        return FLAGGED if flags else PENDING
 
     def draft(self) -> str:
         return render(self.fields, self.issues)
 
+    def check(self, action: str, actor: str) -> None:
+        """Refuse (and audit) a human action the actor or the transition table does not allow."""
+        if not actor.strip():
+            self.store.refuse(self.id, actor, action, 'rejected', 'empty_actor')
+            raise ActorRequired(f'{action} needs a non-empty --actor name')
+        try:
+            transition(self.state, action)
+        except ApprovalBlocked:
+            self.store.refuse(self.id, actor, action, 'blocked', 'open_flags')
+            raise ApprovalBlocked('Approval blocked until the review flags are resolved') from None
+        except AlreadyApproved:
+            self.store.refuse(self.id, actor, action, 'rejected', 'already_approved')
+            raise
+        except ExportBlocked:
+            self.store.refuse(self.id, actor, action, 'blocked', f'state_{self.state}')
+            raise ExportBlocked(
+                f'Export refused: draft {self.id} is {self.state}, only approved drafts export'
+            ) from None
+
     def correct(self, field: str, value: str, actor: str) -> None:
+        self.check('correct', actor)
         field = field.strip().lower()
         value = value.strip()
         if field not in (*FIELDS, 'note type'):
@@ -85,7 +175,7 @@ class Workflow:
             self.store.refuse(self.id, actor, 'correct', 'rejected', 'invalid_value')
             raise ValueError('Use a supported field and a single non-empty line')
         new_fields = {**self.fields, field: [value]}
-        # Any edit, even to the same value, clears approval: it needs a fresh one.
+        # Any edit, even to the same value, also clears the stored approval.
         self.store.change(
             actor,
             'correct',
@@ -97,12 +187,11 @@ class Workflow:
         )
 
     def approve(self, actor: str) -> Approval:
-        if self.flags:
-            self.store.refuse(self.id, actor, 'approve', 'blocked', 'open_flags')
-            raise ValueError('Approval blocked until the review flags are resolved')
-        approval = Approval(actor, datetime.now(UTC).isoformat(), self.content_hash)
+        """The only place an Approval is created. Only the CLI `approve` command calls it."""
+        self.check('approve', actor)
+        approval = Approval(actor.strip(), datetime.now(UTC).isoformat(), self.content_hash)
         self.store.change(
-            actor,
+            approval.actor,
             'approve',
             'UPDATE drafts SET approval_actor = ?, approval_ts_utc = ?, approval_hash = ? WHERE id = ?',
             (approval.actor, approval.ts_utc, approval.content_hash, self.id),
@@ -112,6 +201,7 @@ class Workflow:
 
     def next(self, actor: str) -> None:
         """The reviewer moves on from this draft for now; recorded, content unchanged."""
+        self.check('next', actor)
         self.store.change(
             actor,
             'next',

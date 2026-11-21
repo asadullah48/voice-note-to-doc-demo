@@ -36,15 +36,29 @@ exact `correct`, `approve` and `export` commands a person runs. **The demo never
 approves anything.** Other commands: `extract FILE`, `show ID`, `next ID --actor NAME`,
 `audit [ID]`.
 
+## State table
+
+States are derived from stored data, never set by hand. A draft is `approved` only while
+the stored approval hash equals the current content hash **and** no flags are open, so any
+edit removes approval. `pending or flagged` means re-validated: an edit that adds a flag
+gives `flagged`, never `approved`. A `code` cell is the typed error raised (and audited).
+Generated from `TRANSITIONS` in `src/voice_to_doc/review.py`; a test checks they match.
+
+| state \ action | correct | approve | next | export |
+|---|---|---|---|---|
+| pending | pending or flagged | approved | pending | `ExportBlocked` |
+| flagged | pending or flagged | `ApprovalBlocked` | flagged | `ExportBlocked` |
+| approved | pending or flagged | `AlreadyApproved` | approved | approved |
+
 ## How it is built
 
 | Module (`src/voice_to_doc/`) | Role |
 | --- | --- |
 | `extract.py` | Explicit labels first, then a rule-based fallback for unlabeled lines. |
-| `extractors.py` | `TranscriptExtractor` protocol. Default `RuleExtractor`; optional `LLMExtractor` (see below). `check_fields` validates any extractor's output: known fields only, each a list of non-empty single-line strings. |
+| `extractors.py` | `TranscriptExtractor` protocol. Default `RuleExtractor`; optional `LLMExtractor` (see below). `check_fields` validates any extractor's output strictly: known fields only, each a list of non-empty single-line strings; review-control keys (`approval`, `approved`, `approved_by`, `state`, `status`, `reviewer`) raise `ExtractorSchemaError` and no draft is created. |
 | `draft.py` | `validate` returns typed `Flag`s; `render` builds the Markdown. |
 | `models.py` | Frozen dataclasses `Transcript`, `Draft`, `Flag`, `Approval`, and `DraftState` = `pending` / `flagged` / `approved`. |
-| `review.py` | `Workflow`: state is derived (approved while an approval exists, else flagged if any flag, else pending). Any accepted edit clears the approval. Approval is blocked while flags remain. |
+| `review.py` | The transition table and `Workflow`. `approve()` is the only place an `Approval` (actor, UTC time, content hash) is created, and only the CLI `approve` command calls it. |
 | `store.py` | One SQLite file (stdlib `sqlite3`) for drafts and audit. `PRAGMA user_version` schema version, foreign keys on, `BEGIN IMMEDIATE` writes. `Store.change` is the only way state changes: the state write and its `ok` audit row share one transaction. Blocked/rejected/failed actions write only an audit row, in their own transaction. |
 | `audit.py` | Append-only `audit` table (triggers raise on UPDATE and DELETE): `ts_utc`, `actor`, `action`, `outcome` (ok/blocked/rejected/failed), `draft_id`, `reason_code` (e.g. `changed:quantity`), and SHA-256 `before_hash`/`after_hash` of the canonical draft content. No transcript text or corrected values. |
 | `export.py` | Approved drafts only: temp file, fsync, `os.replace` to `<name>-<hash12>.md`, then one transaction for exported state plus its audit row. |
