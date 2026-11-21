@@ -85,11 +85,12 @@ def run(args: argparse.Namespace) -> None:
     if args.command == 'demo':
         run_demo(args.db, args.out)
         return
+    if args.command == 'extract':  # chosen and read before the DB opens: a missing key or file writes nothing
+        extractor: TranscriptExtractor = LLMExtractor.from_env() if args.extractor == 'llm' else RuleExtractor()
+        text = args.transcript.read_text(encoding='utf-8')
     store = Store(args.db, create=args.command == 'extract')
     try:
         if args.command == 'extract':
-            extractor: TranscriptExtractor = LLMExtractor.from_env() if args.extractor == 'llm' else RuleExtractor()
-            text = args.transcript.read_text(encoding='utf-8')
             show(Workflow(text, name=args.name or args.transcript.stem, extractor=extractor, store=store))
         elif args.command == 'audit':
             for row in store.audit_rows(args.draft_id):
